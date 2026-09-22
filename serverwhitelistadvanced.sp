@@ -173,7 +173,7 @@ public OnPluginStart()
 	
 	
 	//I did put ADMFLAG_CONVARS because reading / writing to a file massively could make the server lag
-	RegAdminCmd("sm_whitelist_reload", CommandReload, ADMFLAG_CONVARS, "Reloads the whitelist file and invalidate the SteamGroups blacklist cache.");
+	RegAdminCmd("sm_whitelist_reload", CommandReload, ADMFLAG_CONVARS, "Reloads the whitelist file and invalidate the SteamGroups whitelist and blacklist caches.");
 	RegAdminCmd("sm_whitelist_rewrite", CommandRewrite, ADMFLAG_CONVARS, 
 		"Rewrites the whitelist file to remove SteamId/IPs waiting for map end to be removed. No need if whitelist_removeinstant = 1.");
 	RegAdminCmd("sm_whitelist_list", CommandList, ADMFLAG_CONVARS, "List all SteamIDs, IPs and SteamGroupIds in the whitelist file.");
@@ -895,6 +895,7 @@ public ConVarChange_RemoveInstant(Handle:cvar, const String:oldVal[], const Stri
 loadList(bool:justDeleted=false)
 {
 	ClearTrie( g_hBlacklistCache );
+	ClearTrie( g_hWhitelistCache );
 	g_iWhitelistSteamGroupIdCount = 0;
 	
 	decl String:path[ PLATFORM_MAX_PATH ];
