@@ -515,9 +515,14 @@ public Action:CommandRewrite(client, args)
 		return Plugin_Handled;
 	}
 	
-	rewriteWhitelistFile();
-	
-	ReplyToCommand( client, "[Whitelist] Whitelist file rewritten" );
+	if ( rewriteWhitelistFile() )
+	{
+		ReplyToCommand( client, "[Whitelist] Whitelist file rewritten" );
+	}
+	else
+	{
+		ReplyToCommand( client, "[Whitelist] Failed to rewrite whitelist file ; see error log" );
+	}
 		
 	return Plugin_Handled;
 }
@@ -1057,8 +1062,11 @@ readAndPrintToClientWhitelistedStuff( client )
 	CloseHandle(file);
 }
 
-rewriteWhitelistFile()
+//g_bShouldUpdateFile stays true on failure so it is retried on map/plugin end
+bool:rewriteWhitelistFile()
 {
+	g_bShouldUpdateFile = true;
+
 	//new fileWith random name
 	//Read old
 	//Write new as old is read
@@ -1072,9 +1080,10 @@ rewriteWhitelistFile()
 	new Handle:fileReadFrom = OpenFile( pathReadFrom, "r" );
 	if( fileReadFrom == INVALID_HANDLE )
 	{
-		SetFailState("[Whitelist] Unable to read file %s", pathReadFrom);
+		LogError("[Whitelist] Unable to read file %s ; whitelist file not updated", pathReadFrom);
+		return false;
 	}
-	
+
 	//2- Open WriteTo
 	decl String:pathWriteTo[ PLATFORM_MAX_PATH ];
 	BuildPath( PathType:Path_SM, pathWriteTo, sizeof(pathWriteTo), "configs/whitelist/%s_tmp", g_szWhitelist_fileName );
@@ -1083,7 +1092,8 @@ rewriteWhitelistFile()
 	if( fileWriteTo == INVALID_HANDLE )
 	{
 		CloseHandle( fileReadFrom );
-		SetFailState("[Whitelist] Unable to write to file %s", pathWriteTo);
+		LogError("[Whitelist] Unable to write to file %s ; whitelist file not updated", pathWriteTo);
+		return false;
 	}
 	
 	//3- Read old and write one line retardedly
@@ -1163,20 +1173,17 @@ rewriteWhitelistFile()
 	CloseHandle( fileReadFrom );
 	CloseHandle( fileWriteTo );
 	
-	//5- Delete file
-	if ( !DeleteFile( pathReadFrom ) )
-	{
-		LogMessage( "Error when deleting %s to update the whitelist", pathReadFrom );
-		SetFailState("[Whitelist] Unable to delete file %s", pathReadFrom);
-	}
-	//6- Rename
+	//5- Replace ; RenameFile overwrites the target
 	if ( !RenameFile( pathReadFrom, pathWriteTo ) )
 	{
-		SetFailState("[Whitelist] Unable to rename file %s to %s", pathWriteTo, pathReadFrom );
+		LogError("[Whitelist] Unable to rename file %s to %s ; whitelist file not updated", pathWriteTo, pathReadFrom );
+		DeleteFile( pathWriteTo );
+		return false;
 	}
-	
+
 	ClearTrie( g_hWhitelistRemoveTrie );
 	g_bShouldUpdateFile = false;
+	return true;
 }
 
 //=== Kick
