@@ -13,12 +13,7 @@ public Plugin:myinfo =
 	url = "http://www.sourcemod.net/"
 }
 
-#undef REQUIRE_PLUGIN
-#include <tidykick>
-#define REQUIRE_PLUGIN
-
 #undef REQUIRE_EXTENSIONS
-#include <steamtools>
 #include <steamworks>
 #define REQUIRE_EXTENSIONS
 
@@ -32,9 +27,6 @@ public Plugin:myinfo =
 #define UNKNOWN_STEAMID "UNKNOWN_STEAMID"
 #define UNKNOWN_IP "UNKNOWN_IP"
 
-#define CAN_USE_STEAMTOOLS	(1 << 0)
-#define CAN_USE_STEAMWORKS	(1 << 1)
-
 //Really nice to know UserId range zzz
 #define NO_USER_ID -1
 
@@ -44,7 +36,6 @@ public Plugin:myinfo =
 new bool:g_bWhitelist_enable;
 new bool:g_bWhitelist_immunity;
 new g_iWhitelist_useSteamGroup;
-new bool:g_bWhitelist_useTidyKick;
 new Float:g_bWhitelist_steamgroup_timeout;
 new g_iWhitelist_steamgroup_nbRetry;
 new g_iWhitelist_autovouch; //1.3.0
@@ -77,8 +68,7 @@ new Handle:g_hWhitelistCache = INVALID_HANDLE; //OnMapChange save users ; never 
 new bool:g_bShouldUpdateFile;
 
 //Forwards, native, 3rd party
-new g_iCanUseSteamGroup;
-new bool:g_bCanUseTidyKick;
+new bool:g_bCanUseSteamWorks;
 #if defined DEV_KICK_FORWARD_INTERFACE
 new Handle:g_hForwardOnClientKicked;
 #endif
@@ -87,8 +77,6 @@ new Handle:g_hForwardOnClientKicked;
 
 public APLRes:AskPluginLoad2(Handle:myself, bool:late, String:error[], err_max)
 {
-	MarkNativeAsOptional("Steam_RequestGroupStatus");
-	
 	CreateNative( "IsClientWhitelistStatusPending", Native_IsClientWhitelistStatusPending );//str, ret@bool ; only happen with groups
 	
 	CreateNative( "IsSteamIdWhitelisted", Native_IsSteamIdWhitelisted );//str, bool, ret@bool
@@ -131,51 +119,18 @@ public OnPluginStart()
 	HookConVarChange( convar, ConVarChange_LogKick );
 	g_iLogKick = GetConVarInt( convar ); //oops prior to 1.3.0 was GetConVarBool
 	
-	convar = CreateConVar( "whitelist_steamgroup", "2", //since 1.1.0
-		"Also read SteamGroupIds from whitelist file ? 0=No. 1=Yes (SteamTools). 2=Yes (SteamWorks). Can fallback.", FCVAR_PLUGIN, true, 0.0, true, 2.0 );
+	convar = CreateConVar( "whitelist_steamgroup", "1", //since 1.1.0
+		"Also read SteamGroupIds from whitelist file ? 0=No. 1=Yes (SteamWorks).", FCVAR_PLUGIN, true, 0.0, true, 1.0 );
 	HookConVarChange( convar, ConVarChange_SteamGroup );
-	g_iCanUseSteamGroup = 
-		( GetFeatureStatus( FeatureType_Native, "Steam_RequestGroupStatus" ) == FeatureStatus_Available ? CAN_USE_STEAMTOOLS : 0 ) |
-		( GetFeatureStatus( FeatureType_Native, "SteamWorks_GetUserGroupStatus" ) == FeatureStatus_Available ? CAN_USE_STEAMWORKS : 0 );
+	g_bCanUseSteamWorks = GetFeatureStatus( FeatureType_Native, "SteamWorks_GetUserGroupStatus" ) == FeatureStatus_Available;
 	g_iWhitelist_useSteamGroup = GetConVarInt( convar );
 #if defined DEBUG_MODE
-	PrintToServer( "\t OnPluginStart:: g_iCanUseSteamGroup = %d; g_iWhitelist_useSteamGroup = %d", g_iCanUseSteamGroup, g_iWhitelist_useSteamGroup );
+	PrintToServer( "\t OnPluginStart:: g_bCanUseSteamWorks = %d; g_iWhitelist_useSteamGroup = %d", g_bCanUseSteamWorks, g_iWhitelist_useSteamGroup );
 #endif
-	if ( g_iWhitelist_useSteamGroup > 0 )
+	if ( g_iWhitelist_useSteamGroup > 0 && !g_bCanUseSteamWorks )
 	{
-		if ( g_iCanUseSteamGroup == 0 )
-		{
-			LogMessage( "Both SteamTools and SteamWorks are not found : SteamGroups support is disabled." );
-			SetConVarInt( convar, 0 );
-		}
-		else if ( g_iCanUseSteamGroup == CAN_USE_STEAMWORKS && //CAN_USE_STEAMTOOLS = false
-			g_iWhitelist_useSteamGroup == 1 )
-		{
-			//Not "fallforwarding"
-			LogMessage( "Trying to use SteamTools but only SteamWorks is present. Try 'whitelist_steamgroup 2'. SteamGroups support is disabled." );
-			SetConVarInt( convar, 0 );
-		}
-		//possible fallbacks ; if we can't use SW but can use ST and if we want to use SW; we revert to ST
-		//SW --> ST
-		else if ( 
-			( g_iCanUseSteamGroup & CAN_USE_STEAMWORKS == 0 ) && 
-			( g_iCanUseSteamGroup & CAN_USE_STEAMTOOLS ) && 
-			g_iWhitelist_useSteamGroup == 2 )
-		{
-			LogMessage( "Attempting to use SteamWorks but not found : Trying to revert to SteamTools." );
-			SetConVarInt( convar, 1 );
-		}
-	}
-	
-	convar = CreateConVar( "whitelist_tidykick", "0", //since 1.1.0
-		"Use whitelist_kickmessage through tidykick ? 0=No (Default; need TidyKick). 1=Yes.", FCVAR_PLUGIN, true, 0.0, true, 1.0 );
-	HookConVarChange( convar, ConVarChange_TidyKick );
-	g_bCanUseTidyKick = GetFeatureStatus( FeatureType_Native, "TidyKickClient" ) == FeatureStatus_Available;
-	g_bWhitelist_useTidyKick = GetConVarBool( convar );
-	if ( !g_bCanUseTidyKick && g_bWhitelist_useTidyKick )
-	{
-		LogMessage( "TidyKick not found, therefore kick via TidyKick support is disabled." );
-		SetConVarBool( convar, false );
+		LogMessage( "SteamWorks not found : SteamGroups support is disabled." );
+		SetConVarInt( convar, 0 );
 	}
 	
 	convar = CreateConVar( "whitelist_steamgroup_timeout", "0.34", //since 1.1.0
@@ -448,18 +403,17 @@ public SteamWorks_OnClientGroupStatus(authid, groupAccountID, bool:groupMember, 
 		}
 	}
 	
-	Steam_GroupStatusResult( clientId, groupAccountID, groupMember, groupOfficer );
+	if ( clientId == -1 )
+		return;
+
+	onGroupStatusResult( clientId, groupAccountID, groupMember, groupOfficer );
 }
-//SteamTools (swallowing SteamWorks_OnClientGroupStatus if both ST & SW are opened)
-public Steam_GroupStatusResult(client, groupAccountID, bool:groupMember, bool:groupOfficer)
+onGroupStatusResult(client, groupAccountID, bool:groupMember, bool:groupOfficer)
 {
 #if defined DEBUG_MODE
 	PrintToServer( "\t SteamGroups_GroupStatusResult client=%d is member or officer of group %d = %d", client, groupAccountID, groupMember );
 #endif
-	//Why Asher, Whyyyyyyyyyyyy
-	if ( client == USE_CUSTOM_STEAMID/*-1*/ )
-		return;
-	
+
 	//0- is client to check ?
 	if ( g_iRemainingGroupCheck[ client ] == 0 )
 		return;
@@ -519,7 +473,7 @@ public Steam_GroupStatusResult(client, groupAccountID, bool:groupMember, bool:gr
 		myKickClient( client );
 	}
 #if defined DEBUG_MODE
-	PrintToServer( "\t End Steam_GroupStatusResult" );
+	PrintToServer( "\t End onGroupStatusResult" );
 #endif
 }
 
@@ -843,39 +797,10 @@ public ConVarChange_SteamGroup(Handle:cvar, const String:oldVal[], const String:
 	PrintToServer( "\t ConVarChange_SteamGroup:: From %s to %s", oldVal, newVal );
 #endif
 	g_iWhitelist_useSteamGroup = StringToInt( newVal );
-	if ( g_iWhitelist_useSteamGroup > 0 )
+	if ( g_iWhitelist_useSteamGroup > 0 && !g_bCanUseSteamWorks )
 	{
-		if ( g_iCanUseSteamGroup == 0 )
-		{
-			LogMessage( "Both SteamTools and SteamWorks are not found : SteamGroups support is disabled." );
-			SetConVarInt( cvar, 0 );
-		}
-		else if ( g_iCanUseSteamGroup == CAN_USE_STEAMWORKS && //CAN_USE_STEAMTOOLS = false
-			g_iWhitelist_useSteamGroup == 1 )
-		{
-			//Not "fallforwarding"
-			LogMessage( "Trying to use SteamTools but only SteamWorks is present. Try 'whitelist_steamgroup 2'. SteamGroups support is disabled." );
-			SetConVarInt( cvar, 0 );
-		}
-		//possible fallbacks ; if we can't use SW but can use ST and if we want to use SW; we revert to ST
-		//SW --> ST
-		else if ( 
-			( g_iCanUseSteamGroup & CAN_USE_STEAMWORKS == 0 ) && 
-			( g_iCanUseSteamGroup & CAN_USE_STEAMTOOLS ) && 
-			g_iWhitelist_useSteamGroup == 2 )
-		{
-			LogMessage( "Attempting to use SteamWorks but not found : Trying to revert to SteamTools." );
-			SetConVarInt( cvar, 1 );
-		}
-	}
-}
-public ConVarChange_TidyKick(Handle:cvar, const String:oldVal[], const String:newVal[])
-{
-	g_bWhitelist_useTidyKick = newVal[ 0 ] == '1';
-	if ( !g_bCanUseTidyKick && g_bWhitelist_useTidyKick )
-	{
-		LogMessage( "TidyKick not found, therefore kick via TidyKick support is disabled." );
-		SetConVarBool( cvar, false );
+		LogMessage( "SteamWorks not found : SteamGroups support is disabled." );
+		SetConVarInt( cvar, 0 );
 	}
 }
 public ConVarChange_SteamGroup_Timeout(Handle:cvar, const String:oldVal[], const String:newVal[])
@@ -1249,10 +1174,7 @@ myKickClient( client, bool:isFromBlacklistCache=false )
 		LogMessage( "Kicked %N (%s, %s) for not being on the whitelist", client, szSteamId, szIPv4 );
 	}
 	
-	if ( !g_bWhitelist_useTidyKick )
-		KickClient( client, "%s", g_szKickMessage );
-	else
-		TidyKickClient( client, "%s", g_szKickMessage );
+	KickClient( client, "%s", g_szKickMessage );
 }
 //Delayed kick 1.3.0
 public Action:Timer_DelayedKick( Handle:Timer, any:clientUserId )
@@ -1266,7 +1188,7 @@ public Action:Timer_DelayedKick( Handle:Timer, any:clientUserId )
 	
 	return Plugin_Handled;
 }
-//=== SteamTools or Group Ids related
+//=== SteamWorks or Group Ids related
 
 sendStatusRequests( iClient )
 {
@@ -1277,25 +1199,10 @@ sendStatusRequests( iClient )
 	
 	g_bWhitelist_ClientIsBeingGroupValidated[ iClient ] = true;
 	
-	if ( g_iWhitelist_useSteamGroup == 2 ) //don't loop first; save checks
+	for ( new i; i < g_iWhitelistSteamGroupIdCount; ++i )
 	{
-		for ( new i; i < g_iWhitelistSteamGroupIdCount; ++i )
-		{
-			g_bClientCheckedSteamGroupId[ iClient ][ i ] = false;
-			SteamWorks_GetUserGroupStatus( iClient, g_iWhitelistSteamGroupId[ i ] );
-		}
-	}
-	else if ( g_iWhitelist_useSteamGroup == 1 )
-	{
-		for ( new i; i < g_iWhitelistSteamGroupIdCount; ++i )
-		{
-			g_bClientCheckedSteamGroupId[ iClient ][ i ] = false;
-			Steam_RequestGroupStatus( iClient, g_iWhitelistSteamGroupId[ i ] );
-		}
-	}
-	else
-	{
-		LogError( "Shouldn't happen; g_iWhitelist_useSteamGroup = %d in sendStatusRequests", g_iWhitelist_useSteamGroup );
+		g_bClientCheckedSteamGroupId[ iClient ][ i ] = false;
+		SteamWorks_GetUserGroupStatus( iClient, g_iWhitelistSteamGroupId[ i ] );
 	}
 	
 	g_hClientTimeoutTimers[ iClient ] = CreateTimer( g_bWhitelist_steamgroup_timeout, Timer_CheckPlayerGroups, iClient );
@@ -1319,28 +1226,13 @@ public Action:Timer_CheckPlayerGroups( Handle:Timer, any:clientAndTryCount )
 	new remainingGroupsToCheck = g_iRemainingGroupCheck[ iClient ];
 	new bool:relaunchedAtLeastSomething = false;
 	
-	if ( g_iWhitelist_useSteamGroup == 2 ) //don't loop first; save checks
+	for ( new i; i < g_iWhitelistSteamGroupIdCount && remainingGroupsToCheck != 0; ++i )
 	{
-		for ( new i; i < g_iWhitelistSteamGroupIdCount && remainingGroupsToCheck != 0; ++i )
+		if ( g_bClientCheckedSteamGroupId[ iClient ][ i ] == false )
 		{
-			if ( g_bClientCheckedSteamGroupId[ iClient ][ i ] == false )
-			{
-				SteamWorks_GetUserGroupStatus( iClient, g_iWhitelistSteamGroupId[ i ] );
-				--remainingGroupsToCheck;
-				relaunchedAtLeastSomething = true;
-			}
-		}
-	}
-	else if ( g_iWhitelist_useSteamGroup == 1 )
-	{
-		for ( new i; i < g_iWhitelistSteamGroupIdCount && remainingGroupsToCheck != 0; ++i )
-		{
-			if ( g_bClientCheckedSteamGroupId[ iClient ][ i ] == false )
-			{
-				Steam_RequestGroupStatus( iClient, g_iWhitelistSteamGroupId[ i ] );
-				--remainingGroupsToCheck;
-				relaunchedAtLeastSomething = true;
-			}
+			SteamWorks_GetUserGroupStatus( iClient, g_iWhitelistSteamGroupId[ i ] );
+			--remainingGroupsToCheck;
+			relaunchedAtLeastSomething = true;
 		}
 	}
 	
