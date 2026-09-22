@@ -291,7 +291,11 @@ public OnClientAuthorized(client, const String:szSteamId[])
 		return;
 	}
 	
-	new bool:shouldKick = !GetTrieValue( g_hWhitelistSteamIdTrie, szSteamId, useless );
+	decl String:szSteamIdKey[ 32 ];
+	strcopy( szSteamIdKey, sizeof(szSteamIdKey), szSteamId );
+	normalizeSteamId( szSteamIdKey, sizeof(szSteamIdKey) );
+
+	new bool:shouldKick = !GetTrieValue( g_hWhitelistSteamIdTrie, szSteamIdKey, useless );
 	
 	if( shouldKick )
 	{
@@ -546,7 +550,9 @@ public Action:CommandAdd(client, args)
 		return Plugin_Handled;
 	}
 
-	new bool:isSteamId = strStartsWith( szBuffer, "STEAM", false ) || strStartsWith( szBuffer, "[U:", false ); // 1.3.0 rec. AuthId_Steam3
+	decl String:szKey[ 32 ];
+	strcopy( szKey, sizeof(szKey), szBuffer );
+	new bool:isSteamId = normalizeSteamId( szKey, sizeof(szKey) );
 
 	if ( !isNumeric && !isSteamId && !strIsIPv4( szBuffer ) )
 	{
@@ -615,7 +621,7 @@ public Action:CommandAdd(client, args)
 			
 			if ( isSteamId )
 			{
-				SetTrieValue( g_hWhitelistSteamIdTrie, szBuffer, 0 );
+				SetTrieValue( g_hWhitelistSteamIdTrie, szKey, 0 );
 			}
 			else if ( !isNumeric ) //IP; groups were added above
 			{
@@ -672,8 +678,12 @@ public Action:CommandExist(client, args)
 	}
 	
 	decl useless;
-	
-	new bool:found = GetTrieValue( g_hWhitelistSteamIdTrie, szBuffer, useless ) ||
+
+	decl String:szKey[ 32 ];
+	strcopy( szKey, sizeof(szKey), szBuffer );
+	normalizeSteamId( szKey, sizeof(szKey) );
+
+	new bool:found = GetTrieValue( g_hWhitelistSteamIdTrie, szKey, useless ) ||
 		GetTrieValue( g_hWhitelistIPTrie, szBuffer, useless );
 
 	if ( !found && isNumeric )
@@ -720,9 +730,14 @@ public Action:CommandRemove(client, args)
 		return Plugin_Handled;
 	}
 	
+	// SteamIDs normalized, IPs/groups as typed ; rewriteWhitelistFile normalizes file lines the same way
+	decl String:szKey[ 32 ];
+	strcopy( szKey, sizeof(szKey), szBuffer );
+	normalizeSteamId( szKey, sizeof(szKey) );
+
 	new bool:found;
-	
-	found = bool:RemoveFromTrie( g_hWhitelistSteamIdTrie, szBuffer );
+
+	found = bool:RemoveFromTrie( g_hWhitelistSteamIdTrie, szKey );
 	if ( !found )
 	{
 		found = bool:RemoveFromTrie( g_hWhitelistIPTrie, szBuffer );
@@ -739,7 +754,7 @@ public Action:CommandRemove(client, args)
 	
 	if ( found )
 	{
-		SetTrieValue( g_hWhitelistRemoveTrie, szBuffer, 0 );
+		SetTrieValue( g_hWhitelistRemoveTrie, szKey, 0 );
 		
 		if ( g_bWhitelist_removeinstant )
 		{
@@ -919,7 +934,7 @@ loadList(bool:justDeleted=false)
 		{
 			addSteamGroup( szLine );
 		}
-		else if ( strStartsWith( szLine, "STEAM", false ) || strStartsWith( szLine, "[U:", false ) )
+		else if ( normalizeSteamId( szLine, sizeof(szLine) ) )
 		{
 			SetTrieValue( g_hWhitelistSteamIdTrie, szLine, 0 );
 		}
@@ -1087,6 +1102,7 @@ rewriteWhitelistFile()
 					//Should already be removed from current whitelist tries
 					//Just remove it; if it was there, that's all, else, write to file
 					//if ( !RemoveFromTrie( g_hWhitelistRemoveTrie, lineTwo ) ) //tempting; but if added twice...
+					normalizeSteamId( lineTwo, sizeof(lineTwo) );
 					if ( !GetTrieValue( g_hWhitelistRemoveTrie, lineTwo, useless ) )
 					{
 						writeLineOne = true;
@@ -1109,6 +1125,7 @@ rewriteWhitelistFile()
 			else if ( formatStrAndGetReducedSize( lineOne ) >= 7 || ( strIsPositiveInt( lineOne ) && StringToInt( lineOne ) != -1 ) )
 			{
 				//if ( !RemoveFromTrie( g_hWhitelistRemoveTrie, lineOne ) ) //tempting; but if added twice...
+				normalizeSteamId( lineOne, sizeof(lineOne) );
 				if ( !GetTrieValue( g_hWhitelistRemoveTrie, lineOne, useless ) )
 				{
 					writeLineOne = true;
@@ -1421,6 +1438,44 @@ bool:strIsPositiveInt( String:str[] )
 	
 	return len != 0;
 }
+// Rewrites STEAM_X:Y:Z (any universe X) and [U:X:N] to [U:1:N] so every format matches the same trie key
+// Returns false and leaves str untouched if it's neither
+bool:normalizeSteamId( String:str[], maxlen )
+{
+	decl String:parts[ 4 ][ 12 ]; // 4 to detect extra ':' pieces
+
+	if ( strncmp( str, "STEAM_", 6, false ) == 0 )
+	{
+		if ( ExplodeString( str[ 6 ], ":", parts, sizeof(parts), sizeof(parts[]) ) != 3 ||
+			!strIsPositiveInt( parts[ 0 ] ) || !strIsPositiveInt( parts[ 2 ] ) ||
+			!( StrEqual( parts[ 1 ], "0" ) || StrEqual( parts[ 1 ], "1" ) ) )
+			return false;
+
+		// %u : Z*2+Y can go past 2^31
+		Format( str, maxlen, "[U:1:%u]", StringToInt( parts[ 2 ] ) * 2 + StringToInt( parts[ 1 ] ) );
+		return true;
+	}
+
+	if ( strncmp( str, "[U:", 3, false ) == 0 )
+	{
+		new len = strlen( str );
+		if ( str[ len - 1 ] != ']' )
+			return false;
+
+		// "[U:X:N]" -> { "[U", "X", "N]" }
+		if ( ExplodeString( str, ":", parts, sizeof(parts), sizeof(parts[]) ) != 3 )
+			return false;
+
+		parts[ 2 ][ strlen( parts[ 2 ] ) - 1 ] = '\0';
+		if ( !strIsPositiveInt( parts[ 1 ] ) || !strIsPositiveInt( parts[ 2 ] ) )
+			return false;
+
+		Format( str, maxlen, "[U:1:%s]", parts[ 2 ] );
+		return true;
+	}
+
+	return false;
+}
 
 //===== Natives
 
@@ -1435,13 +1490,14 @@ public Native_IsClientWhitelistStatusPending(Handle:hPlugin, iNumParams)//str, r
 }
 public Native_IsSteamIdWhitelisted(Handle:hPlugin, iNumParams)//str, bool, ret@bool
 {
-	decl String:szSteamId[ 20 ];
+	decl String:szSteamId[ 32 ];
 	GetNativeString( 1, szSteamId, sizeof(szSteamId) );
-	
+	normalizeSteamId( szSteamId, sizeof(szSteamId) );
+
 	new bool:currentOnly = GetNativeCell( 2 );
-	
+
 	decl useless;
-	
+
 	if ( !currentOnly )
 	{
 		return !GetTrieValue( g_hWhitelistRemoveTrie, szSteamId, useless ) && GetTrieValue( g_hWhitelistSteamIdTrie, szSteamId, useless );
