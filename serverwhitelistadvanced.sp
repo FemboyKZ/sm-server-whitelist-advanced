@@ -2,15 +2,15 @@
 
 #define DEV_KICK_FORWARD_INTERFACE
 
-#define PLUGIN_VERSION "1.5.0"
+#define PLUGIN_VERSION "1.5.2"
 
 public Plugin:myinfo = 
 {
 	name = "Server Whitelist Advanced",
-	author = "RedSword ; forked & rewrote from Stevo.TVR 'Server whitelist'",
+	author = "RedSword ; forked & rewrote from Stevo.TVR 'Server whitelist' ; FKZ Fork",
 	description = "Restricts server to SteamIDs, IPs and SteamGroups' members/officers listed in the whitelist",
 	version = PLUGIN_VERSION,
-	url = "http://www.sourcemod.net/"
+	url = "https://github.com/jvnipers/sm-server-whitelist-advanced"
 }
 
 #undef REQUIRE_EXTENSIONS
