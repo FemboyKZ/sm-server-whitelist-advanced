@@ -379,6 +379,9 @@ public OnClientDisconnect( client ) //1.3.0
 		KillTimer( g_hClientTimeoutTimers[ client ] );
 		g_hClientTimeoutTimers[ client ] = INVALID_HANDLE;
 	}
+
+	// Check died with the timer; don't leave the slot "pending"
+	g_iRemainingGroupCheck[ client ] = 0;
 }
 
 public OnMapEnd()
