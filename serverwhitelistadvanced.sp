@@ -659,10 +659,22 @@ public Action:CommandExist(client, args)
 	
 	decl useless;
 	
-	new bool:found = GetTrieValue( g_hWhitelistSteamIdTrie, szBuffer, useless ) || 
-		GetTrieValue( g_hWhitelistIPTrie, szBuffer, useless ) ||
-		( isNumeric && StringToInt( szBuffer ) >= 0 ); //1.3.0 oops
-	
+	new bool:found = GetTrieValue( g_hWhitelistSteamIdTrie, szBuffer, useless ) ||
+		GetTrieValue( g_hWhitelistIPTrie, szBuffer, useless );
+
+	if ( !found && isNumeric )
+	{
+		new groupId = StringToInt( szBuffer );
+		for ( new i; i < g_iWhitelistSteamGroupIdCount; ++i )
+		{
+			if ( g_iWhitelistSteamGroupId[ i ] == groupId )
+			{
+				found = true;
+				break;
+			}
+		}
+	}
+
 	ReplyToCommand( client, "[SM] %s is %sin the current loaded whitelist", szBuffer, found ? "" : "not " );
 	
 	return Plugin_Handled;
