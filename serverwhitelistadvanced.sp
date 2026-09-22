@@ -2,7 +2,7 @@
 
 #define DEV_KICK_FORWARD_INTERFACE
 
-#define PLUGIN_VERSION "1.5.2"
+#define PLUGIN_VERSION "1.6.0"
 
 public Plugin:myinfo = 
 {
