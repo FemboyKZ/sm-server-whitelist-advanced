@@ -1402,7 +1402,7 @@ public Native_IsClientWhitelistStatusPending(Handle:hPlugin, iNumParams)//str, r
 {
 	new client = GetNativeCell( 1 );
 	
-	if ( 0 < client <= MAXPLAYERS + 1 )
+	if ( client <= 0 || client > MAXPLAYERS )
 		return false;
 	
 	return g_iRemainingGroupCheck[ client ] != 0;
