@@ -635,6 +635,11 @@ public Action:CommandAdd(client, args)
 				SetTrieValue( g_hWhitelistIPTrie, szBuffer, 0 );
 			}
 			ReplyToCommand( client, "[SM] %s successfully added to both the whitelist file and the current whitelist", szBuffer );
+
+			if ( isNumeric )
+			{
+				restartPendingGroupChecks();
+			}
 		}
 		else
 		{
@@ -756,6 +761,7 @@ public Action:CommandRemove(client, args)
 		if ( found )
 		{
 			ClearTrie( g_hWhitelistCache ); //1.3.0 we clear the whitelist since whitelisted player might have been in the group
+			restartPendingGroupChecks();
 		}
 	}
 	
@@ -954,8 +960,10 @@ loadList(bool:justDeleted=false)
 			PrintToServer( "Unrecognized SteamId, IP or SteamGroupId : %s", szLine );
 		}
 	}
-	
+
 	CloseHandle(file);
+
+	restartPendingGroupChecks();
 }
 createInitialFile( String:unexistingFilePath[] )
 {
@@ -1272,6 +1280,20 @@ sendStatusRequests( iClient )
 		SteamWorks_GetUserGroupStatus( iClient, g_iWhitelistSteamGroupId[ i ] );
 	}
 }
+// Pending checks index g_bClientCheckedSteamGroupId by group position; call after any change to the group list
+// Re-runs the whole connect check (lists may have changed too; no groups left -> kick)
+restartPendingGroupChecks()
+{
+	decl String:szSteamId[ 32 ];
+	for ( new i = 1; i <= MaxClients; ++i )
+	{
+		if ( g_iRemainingGroupCheck[ i ] != 0 && IsClientConnected( i ) &&
+			GetClientAuthId( i, AuthId_Engine, szSteamId, sizeof(szSteamId) ) )
+		{
+			OnClientAuthorized( i, szSteamId );
+		}
+	}
+}
 //clientAndTryCount ; 8 clients, rest = tryCount
 public Action:Timer_CheckPlayerGroups( Handle:Timer, any:clientAndTryCount )
 {
@@ -1291,13 +1313,14 @@ public Action:Timer_CheckPlayerGroups( Handle:Timer, any:clientAndTryCount )
 
 	if ( g_iWhitelist_steamgroup_nbRetry != -1 && tryCount >= g_iWhitelist_steamgroup_nbRetry )
 	{
+		g_iRemainingGroupCheck[ iClient ] = 0; // stop checking; late answers are ignored
+
 		if ( g_bWhitelist_steamgroup_kickOnFail )
 		{
 			myKickClient( iClient );
 		}
 		else
 		{
-			g_iRemainingGroupCheck[ iClient ] = 0; // stop checking; late answers are ignored
 			LogMessage( "No SteamGroup answer for %N after %d retries; letting them stay", iClient, tryCount );
 		}
 		return Plugin_Handled;
