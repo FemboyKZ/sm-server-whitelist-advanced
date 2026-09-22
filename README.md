@@ -8,4 +8,5 @@ Reuploaded for easier modification
 
 ## Made changes
 
-- Removed TidyKick and SteamTools support
+- Removed TidyKick and SteamTools support.
+- Added bool `whitelist_steamgroup_kickonfail` and implicitly handling what happens when steam group checks fail.

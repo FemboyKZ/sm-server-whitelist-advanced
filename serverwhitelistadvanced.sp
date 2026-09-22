@@ -38,6 +38,7 @@ new bool:g_bWhitelist_immunity;
 new g_iWhitelist_useSteamGroup;
 new Float:g_bWhitelist_steamgroup_timeout;
 new g_iWhitelist_steamgroup_nbRetry;
+new bool:g_bWhitelist_steamgroup_kickOnFail;
 new g_iWhitelist_autovouch; //1.3.0
 new Float:g_fWhitelist_autovouch_timeout; //1.3.0
 new bool:g_bWhitelist_removeinstant;
@@ -142,7 +143,12 @@ public OnPluginStart()
 		"Maximum number of retry to do before saying someone is blacklisted. 'whitelist_steamgroup_timeout' seconds between each retry. ; Put '-1' for unlimited retry. Doing so should make people not be kicked in case Valve never respond (i.e. they have technical problems).", FCVAR_PLUGIN, true, -1.0 );
 	HookConVarChange( convar, ConVarChange_SteamGroup_NbRetry );
 	g_iWhitelist_steamgroup_nbRetry = GetConVarInt( convar );
-	
+
+	convar = CreateConVar( "whitelist_steamgroup_kickonfail", "0",
+		"When 'whitelist_steamgroup_retry' runs out without an answer from Valve : 0=Let the player stay (not cached; rechecked next connect), 1=Kick. Unused if _retry = -1.", FCVAR_PLUGIN, true, 0.0, true, 1.0 );
+	HookConVarChange( convar, ConVarChange_SteamGroup_KickOnFail );
+	g_bWhitelist_steamgroup_kickOnFail = GetConVarBool( convar );
+
 	convar = CreateConVar( "whitelist_autovouch", "0", //since 1.3.0
 		"Allows people to join if they are not whitelisted under a certain condition. 0=Nop, 1=Someone is whitelisted, 2=An admin is present (_immunity needed), 3=Someone is present.", FCVAR_PLUGIN, true, 0.0, true, 3.0 );
 	HookConVarChange( convar, ConVarChange_AutoVouch );
@@ -811,6 +817,10 @@ public ConVarChange_SteamGroup_NbRetry(Handle:cvar, const String:oldVal[], const
 {
 	g_iWhitelist_steamgroup_nbRetry = StringToInt( newVal );
 }
+public ConVarChange_SteamGroup_KickOnFail(Handle:cvar, const String:oldVal[], const String:newVal[])
+{
+	g_bWhitelist_steamgroup_kickOnFail = newVal[ 0 ] == '1';
+}
 public ConVarChange_AutoVouch(Handle:cvar, const String:oldVal[], const String:newVal[])
 {
 	g_iWhitelist_autovouch = StringToInt( newVal );
@@ -1202,10 +1212,15 @@ sendStatusRequests( iClient )
 	for ( new i; i < g_iWhitelistSteamGroupIdCount; ++i )
 	{
 		g_bClientCheckedSteamGroupId[ iClient ][ i ] = false;
+	}
+
+	// Timer before requests : a native error aborts this function, and the timer is what retries/kicks
+	g_hClientTimeoutTimers[ iClient ] = CreateTimer( g_bWhitelist_steamgroup_timeout, Timer_CheckPlayerGroups, iClient );
+
+	for ( new i; i < g_iWhitelistSteamGroupIdCount; ++i )
+	{
 		SteamWorks_GetUserGroupStatus( iClient, g_iWhitelistSteamGroupId[ i ] );
 	}
-	
-	g_hClientTimeoutTimers[ iClient ] = CreateTimer( g_bWhitelist_steamgroup_timeout, Timer_CheckPlayerGroups, iClient );
 }
 //clientAndTryCount ; 8 clients, rest = tryCount
 public Action:Timer_CheckPlayerGroups( Handle:Timer, any:clientAndTryCount )
@@ -1217,44 +1232,39 @@ public Action:Timer_CheckPlayerGroups( Handle:Timer, any:clientAndTryCount )
 	PrintToServer( "\t Timer_CheckPlayerGroups for %d, TryCoutn = %d", iClient, tryCount );
 #endif
 	
+	g_hClientTimeoutTimers[ iClient ] = INVALID_HANDLE;
+
 	if ( !IsClientConnected( iClient ) || g_iRemainingGroupCheck[ iClient ] == 0 )
 	{
-		g_hClientTimeoutTimers[ iClient ] = INVALID_HANDLE;
 		return Plugin_Handled;
 	}
-	
-	new remainingGroupsToCheck = g_iRemainingGroupCheck[ iClient ];
-	new bool:relaunchedAtLeastSomething = false;
-	
-	for ( new i; i < g_iWhitelistSteamGroupIdCount && remainingGroupsToCheck != 0; ++i )
+
+	if ( g_iWhitelist_steamgroup_nbRetry != -1 && tryCount >= g_iWhitelist_steamgroup_nbRetry )
+	{
+		if ( g_bWhitelist_steamgroup_kickOnFail )
+		{
+			myKickClient( iClient );
+		}
+		else
+		{
+			g_iRemainingGroupCheck[ iClient ] = 0; // stop checking; late answers are ignored
+			LogMessage( "No SteamGroup answer for %N after %d retries; letting them stay", iClient, tryCount );
+		}
+		return Plugin_Handled;
+	}
+
+#if defined DEBUG_MODE
+	PrintToServer( "\t Some groups were forgotten; Relaunching timer to check groups" );
+#endif
+	// Timer before requests : same reason as in sendStatusRequests
+	g_hClientTimeoutTimers[ iClient ] = CreateTimer( g_bWhitelist_steamgroup_timeout, Timer_CheckPlayerGroups, iClient | ( ( tryCount + 1 ) << 8 ) );
+
+	for ( new i; i < g_iWhitelistSteamGroupIdCount; ++i )
 	{
 		if ( g_bClientCheckedSteamGroupId[ iClient ][ i ] == false )
 		{
 			SteamWorks_GetUserGroupStatus( iClient, g_iWhitelistSteamGroupId[ i ] );
-			--remainingGroupsToCheck;
-			relaunchedAtLeastSomething = true;
 		}
-	}
-	
-	if ( relaunchedAtLeastSomething )
-	{
-		if ( g_iWhitelist_steamgroup_nbRetry == -1 || tryCount < g_iWhitelist_steamgroup_nbRetry )
-		{
-			g_hClientTimeoutTimers[ iClient ] = CreateTimer( g_bWhitelist_steamgroup_timeout, Timer_CheckPlayerGroups, iClient | ( ( tryCount + 1 ) << 8 ) );
-		}
-		else
-		{
-			myKickClient( iClient );
-		}
-#if defined DEBUG_MODE
-		PrintToServer( "\t Some groups were forgotten; Relaunching timer to check groups" );
-#endif
-	}
-	else
-	{
-#if defined DEBUG_MODE
-		PrintToServer( "\t How is this even possible D: (remaining groups to check, but all were fine...)" );
-#endif
 	}
 	
 	return Plugin_Handled;
