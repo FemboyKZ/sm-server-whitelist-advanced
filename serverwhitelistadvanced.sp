@@ -17,7 +17,9 @@ public Plugin:myinfo =
 #include <SteamWorks>
 #define REQUIRE_EXTENSIONS
 
+#undef REQUIRE_PLUGIN
 #include <serverwhitelistadvanced>
+#define REQUIRE_PLUGIN
 
 // Format of the time; change if you wish
 #define DATETIMEFORMAT "%x, %X"
@@ -86,7 +88,9 @@ public APLRes:AskPluginLoad2(Handle:myself, bool:late, String:error[], err_max)
 	
 	CreateNative( "IsSteamIdWhitelistCached", Native_IsSteamIdWhitelistCached );//str, ret@bool
 	CreateNative( "IsSteamIdBlacklistCached", Native_IsSteamIdBlacklistCached );//str, ret@bool
-	
+
+	RegPluginLibrary( "serverwhitelistadvanced" ); // __pl_serverwhitelistadvanced in .inc
+
 	return APLRes_Success;
 }
 

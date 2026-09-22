@@ -1,3 +1,8 @@
+#if defined _serverwhitelistadvanced_included
+ #endinput
+#endif
+#define _serverwhitelistadvanced_included
+
 /**
 *	This forward is called whenever someone is kicked by the plugin ServerWhitelistAdvanced
 *
@@ -50,3 +55,26 @@ native bool:IsSteamIdWhitelistCached( const String:szSteamId[] );
 * @return true if the SteamId is cached in the blacklist, false otherwise.
 */
 native bool:IsSteamIdBlacklistCached( const String:szSteamId[] );
+
+public SharedPlugin:__pl_serverwhitelistadvanced =
+{
+	name = "serverwhitelistadvanced",
+	file = "serverwhitelistadvanced.smx",
+#if defined REQUIRE_PLUGIN
+	required = 1,
+#else
+	required = 0,
+#endif
+};
+
+#if !defined REQUIRE_PLUGIN
+public __pl_serverwhitelistadvanced_SetNTVOptional()
+{
+	MarkNativeAsOptional( "IsClientWhitelistStatusPending" );
+	MarkNativeAsOptional( "IsSteamIdWhitelisted" );
+	MarkNativeAsOptional( "IsIPWhitelisted" );
+	MarkNativeAsOptional( "IsSteamGroupWhitelisted" );
+	MarkNativeAsOptional( "IsSteamIdWhitelistCached" );
+	MarkNativeAsOptional( "IsSteamIdBlacklistCached" );
+}
+#endif
