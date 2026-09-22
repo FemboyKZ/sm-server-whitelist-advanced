@@ -621,13 +621,13 @@ public Action:CommandAdd(client, args)
 		{
 			ReplyToCommand( client, "[SM] Failed to add %s to whitelist", szBuffer );
 		}
+		CloseHandle(file);
 	}
 	else
 	{
 		ReplyToCommand(client, "[SM] Failed to open %s for writing", path);
 	}
-	CloseHandle(file);
-	
+
 	return Plugin_Handled;
 }
 public Action:CommandExist(client, args)
