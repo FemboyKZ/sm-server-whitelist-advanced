@@ -753,6 +753,7 @@ public Action:CommandRemove(client, args)
 	normalizeSteamId( szKey, sizeof(szKey) );
 
 	new bool:found;
+	new bool:rewritten;
 
 	found = bool:RemoveFromTrie( g_hWhitelistSteamIdTrie, szKey );
 	if ( !found )
@@ -776,20 +777,27 @@ public Action:CommandRemove(client, args)
 		
 		if ( g_bWhitelist_removeinstant )
 		{
-			rewriteWhitelistFile();
+			rewritten = rewriteWhitelistFile();
 		}
 		else
 		{
 			g_bShouldUpdateFile = true;
 		}
 	}
-	
+
 	if ( found )
 	{
 		ReplyToCommand( client, "[SM] %s has been removed from the current loaded whitelist.", szBuffer );
 		if ( g_bWhitelist_removeinstant )
 		{
-			ReplyToCommand( client, "[SM] %s should have been removed from %s.", szBuffer, g_szWhitelist_fileName );
+			if ( rewritten )
+			{
+				ReplyToCommand( client, "[SM] %s has been removed from %s.", szBuffer, g_szWhitelist_fileName );
+			}
+			else
+			{
+				ReplyToCommand( client, "[SM] Failed to remove %s from %s (see error log) ; will retry on map change.", szBuffer, g_szWhitelist_fileName );
+			}
 		}
 		else
 		{
