@@ -14,7 +14,7 @@ public Plugin:myinfo =
 }
 
 #undef REQUIRE_EXTENSIONS
-#include <steamworks>
+#include <SteamWorks>
 #define REQUIRE_EXTENSIONS
 
 #include <serverwhitelistadvanced>
