@@ -545,7 +545,22 @@ public Action:CommandAdd(client, args)
 		ReplyToCommand(client, "[SM] Could not add %s ; incorrect input.", szBuffer);
 		return Plugin_Handled;
 	}
-	
+
+	new bool:isSteamId = strStartsWith( szBuffer, "STEAM", false ) || strStartsWith( szBuffer, "[U:", false ); // 1.3.0 rec. AuthId_Steam3
+
+	if ( !isNumeric && !isSteamId && !strIsIPv4( szBuffer ) )
+	{
+		ReplyToCommand(client, "[SM] Could not add %s ; not a SteamID, IP or SteamGroupId.", szBuffer);
+		return Plugin_Handled;
+	}
+
+	// Groups can be refused (duplicate / too many) ; add before writing so the file only gets what is loaded
+	if ( isNumeric && !addSteamGroup( szBuffer ) )
+	{
+		ReplyToCommand(client, "[SM] Could not add %s ; SteamGroup already whitelisted or max of %d SteamGroups reached.", szBuffer, MAXIMUM_STEAMGROUPS);
+		return Plugin_Handled;
+	}
+
 	ClearTrie( g_hBlacklistCache );
 	
 	decl String:path[ PLATFORM_MAX_PATH ];
@@ -593,38 +608,37 @@ public Action:CommandAdd(client, args)
 		GetCmdArg( 2, szCustomComment, sizeof(szCustomComment) );
 		
 		//Add \n to be sure we're not adding after a comment
-		WriteFileLine( file, "\n;auto Added by <%N;%s;IP_%s> on %s ; %s", client, szSteamId, szIp, szDate, szCustomComment );
-		//2-Information
-		if ( WriteFileLine( file, szBuffer ) )
+		//2-Information ; written with the header in one call so the header never lands without it
+		if ( WriteFileLine( file, "\n;auto Added by <%N;%s;IP_%s> on %s ; %s\n%s", client, szSteamId, szIp, szDate, szCustomComment, szBuffer ) )
 		{
 			g_bShouldUpdateFile = true; //remove possible "\n" misplaced ; I know this is terrible; but needed (an append could be made on an used line)
 			
-			if ( isNumeric )//its a group; we know from above
-			{
-				addSteamGroup( szBuffer );
-			}
-			else if ( strStartsWith( szBuffer, "STEAM", false ) || strStartsWith( szBuffer, "[U:", false ) ) //1.3.0 rec. AuthId_Steam3
+			if ( isSteamId )
 			{
 				SetTrieValue( g_hWhitelistSteamIdTrie, szBuffer, 0 );
 			}
-			else if ( strIsIPv4( szBuffer ) )
+			else if ( !isNumeric ) //IP; groups were added above
 			{
 				SetTrieValue( g_hWhitelistIPTrie, szBuffer, 0 );
-			}
-			else
-			{
-				ReplyToCommand( client, "[SM] Wrote trash to whitelist file", szBuffer );
 			}
 			ReplyToCommand( client, "[SM] %s successfully added to both the whitelist file and the current whitelist", szBuffer );
 		}
 		else
 		{
+			if ( isNumeric )
+			{
+				removeFromGroupArray( StringToInt( szBuffer ) );
+			}
 			ReplyToCommand( client, "[SM] Failed to add %s to whitelist", szBuffer );
 		}
 		CloseHandle(file);
 	}
 	else
 	{
+		if ( isNumeric )
+		{
+			removeFromGroupArray( StringToInt( szBuffer ) );
+		}
 		ReplyToCommand(client, "[SM] Failed to open %s for writing", path);
 	}
 
