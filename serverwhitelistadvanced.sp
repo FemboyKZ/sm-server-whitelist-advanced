@@ -2,7 +2,7 @@
 
 #define DEV_KICK_FORWARD_INTERFACE
 
-#define PLUGIN_VERSION "1.6.1"
+#define PLUGIN_VERSION "1.6.2"
 
 public Plugin:myinfo = 
 {
@@ -44,7 +44,6 @@ new bool:g_bWhitelist_steamgroup_kickOnFail;
 new g_iWhitelist_autovouch; //1.3.0
 new Float:g_fWhitelist_autovouch_timeout; //1.3.0
 new bool:g_bWhitelist_removeinstant;
-new Float:g_fWhitelist_authTimeout;
 new String:g_szWhitelist_fileName[ 64 ];
 new String:g_szKickMessage[ 256 ];
 new g_iLogKick;
@@ -169,11 +168,6 @@ public OnPluginStart()
 	HookConVarChange( convar, ConVarChange_RemoveInstant );
 	g_bWhitelist_removeinstant = GetConVarBool( convar );
 
-	convar = CreateConVar( "whitelist_auth_timeout", "15.0",
-		"Time (in seconds) an in-game player may stay without a validated SteamID before being kicked; the whitelist can't be checked without one.", FCVAR_PLUGIN, true, 1.0 );
-	HookConVarChange( convar, ConVarChange_AuthTimeout );
-	g_fWhitelist_authTimeout = GetConVarFloat( convar );
-
 
 	AutoExecConfig(true, "serverwhitelistadvanced");
 	
@@ -210,34 +204,17 @@ public OnPluginStart()
 	loadList();
 }
 
-// Not OnClientAuthorized : it may never fire (e.g. Steam never validates the ticket), which let players in unchecked.
-// PostAdminCheck has the same dependency, hence Timer_AuthTimeout.
-public OnClientPostAdminCheck(client)
+// Not OnClientAuthorized : it waits for Steam's async ban/licence verdict, which may never come, and let players in unchecked.
+// The engine already bound the SteamID to the client's ticket before accepting the connection, so unvalidated is enough here.
+public OnClientConnected(client)
 {
 	decl String:szSteamId[ 32 ];
-	if ( GetClientAuthId( client, AuthId_Engine, szSteamId, sizeof(szSteamId) ) )
+	if ( GetSteamAccountID( client, false ) == 0 || !GetClientAuthId( client, AuthId_Engine, szSteamId, sizeof(szSteamId), false ) )
 	{
-		checkClient( client, szSteamId );
-	}
-}
-public OnClientPutInServer(client)
-{
-	if ( g_bWhitelist_enable && !IsFakeClient( client ) && !IsClientAuthorized( client ) )
-	{
-		CreateTimer( g_fWhitelist_authTimeout, Timer_AuthTimeout, GetClientUserId( client ) );
-	}
-}
-public Action:Timer_AuthTimeout( Handle:Timer, any:clientUserId )
-{
-	new client = GetClientOfUserId( clientUserId );
-
-	if ( client > 0 && g_bWhitelist_enable && !IsClientAuthorized( client ) )
-	{
-		g_fWhitelist_ClientIsVoucherTimeAtShouldKick[ client ] = 0.0; //already waited; no extra autovouch delay
-		myKickClient( client );
+		strcopy( szSteamId, sizeof(szSteamId), UNKNOWN_STEAMID ); //no ticket checked (e.g. insecure); only an IP can whitelist them
 	}
 
-	return Plugin_Handled;
+	checkClient( client, szSteamId );
 }
 checkClient(client, const String:szSteamId[])
 {
@@ -345,7 +322,7 @@ checkClient(client, const String:szSteamId[])
 	{
 		g_fWhitelist_ClientIsVoucherTimeAtShouldKick[ client ] = GetGameTime();
 		
-		if ( g_iWhitelist_useSteamGroup > 0 && g_iWhitelistSteamGroupIdCount != 0 ) //if there are SteamGroups to check, postpone possible kick
+		if ( g_iWhitelist_useSteamGroup > 0 && g_iWhitelistSteamGroupIdCount != 0 && !StrEqual( szSteamId, UNKNOWN_STEAMID ) ) //if there are SteamGroups to check, postpone possible kick
 		{
 			sendStatusRequests( client );
 		}
@@ -447,7 +424,7 @@ public SteamWorks_OnClientGroupStatus(authid, groupAccountID, bool:groupMember, 
 	{
 		if ( g_bWhitelist_ClientIsBeingGroupValidated[ i ] == true )
 		{
-			if ( authid == GetSteamAccountID ( i ) )
+			if ( authid == GetSteamAccountID ( i, false ) )
 			{
 				clientId = i;
 				break;
@@ -495,7 +472,7 @@ onGroupStatusResult(client, groupAccountID, bool:groupMember, bool:groupOfficer)
 	if ( groupMember || groupOfficer )
 	{
 		decl String:szSteamId[ 20 ];
-		if ( !GetClientAuthId( client, AuthId_Engine, szSteamId, sizeof(szSteamId) ) )
+		if ( !GetClientAuthId( client, AuthId_Engine, szSteamId, sizeof(szSteamId), false ) )
 		{
 			strcopy( szSteamId, sizeof(szSteamId), UNKNOWN_STEAMID );
 		}
@@ -513,7 +490,7 @@ onGroupStatusResult(client, groupAccountID, bool:groupMember, bool:groupOfficer)
 	if ( --g_iRemainingGroupCheck[ client ] == 0 )
 	{
 		decl String:szSteamId[ 20 ];
-		if ( !GetClientAuthId( client, AuthId_Engine, szSteamId, sizeof(szSteamId) ) )
+		if ( !GetClientAuthId( client, AuthId_Engine, szSteamId, sizeof(szSteamId), false ) )
 		{
 			strcopy( szSteamId, sizeof(szSteamId), UNKNOWN_STEAMID );
 		}
@@ -935,10 +912,6 @@ public ConVarChange_RemoveInstant(Handle:cvar, const String:oldVal[], const Stri
 {
 	g_bWhitelist_removeinstant = newVal[ 0 ] == '1';
 }
-public ConVarChange_AuthTimeout(Handle:cvar, const String:oldVal[], const String:newVal[])
-{
-	g_fWhitelist_authTimeout = StringToFloat( newVal );
-}
 
 //===== Privates =====
 
@@ -1268,7 +1241,7 @@ myKickClient( client, bool:isFromBlacklistCache=false )
 	decl String:szSteamId[ 20 ];
 	decl String:szIPv4[ 16 ];
 	
-	if ( !GetClientAuthId( client, AuthId_Engine, szSteamId, sizeof(szSteamId ) ) )
+	if ( !GetClientAuthId( client, AuthId_Engine, szSteamId, sizeof(szSteamId ), false ) )
 	{
 		strcopy( szSteamId, sizeof(szSteamId), UNKNOWN_STEAMID );
 	}
@@ -1343,7 +1316,7 @@ restartPendingGroupChecks()
 	for ( new i = 1; i <= MaxClients; ++i )
 	{
 		if ( g_iRemainingGroupCheck[ i ] != 0 && IsClientConnected( i ) &&
-			GetClientAuthId( i, AuthId_Engine, szSteamId, sizeof(szSteamId) ) )
+			GetClientAuthId( i, AuthId_Engine, szSteamId, sizeof(szSteamId), false ) )
 		{
 			checkClient( i, szSteamId );
 		}
