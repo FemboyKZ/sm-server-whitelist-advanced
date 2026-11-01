@@ -143,12 +143,12 @@ public OnPluginStart()
 	HookConVarChange( convar, ConVarChange_SteamGroup_Timeout );
 	g_bWhitelist_steamgroup_timeout = GetConVarFloat( convar );
 	
-	convar = CreateConVar( "whitelist_steamgroup_retry", "-1", //since 1.1.0
+	convar = CreateConVar( "whitelist_steamgroup_retry", "15", //since 1.1.0
 		"Maximum number of retry to do before saying someone is blacklisted. 'whitelist_steamgroup_timeout' seconds between each retry. ; Put '-1' for unlimited retry. Doing so should make people not be kicked in case Valve never respond (i.e. they have technical problems).", FCVAR_PLUGIN, true, -1.0 );
 	HookConVarChange( convar, ConVarChange_SteamGroup_NbRetry );
 	g_iWhitelist_steamgroup_nbRetry = GetConVarInt( convar );
 
-	convar = CreateConVar( "whitelist_steamgroup_kickonfail", "0",
+	convar = CreateConVar( "whitelist_steamgroup_kickonfail", "1",
 		"When 'whitelist_steamgroup_retry' runs out without an answer from Valve : 0=Let the player stay (not cached; rechecked next connect), 1=Kick. Unused if _retry = -1.", FCVAR_PLUGIN, true, 0.0, true, 1.0 );
 	HookConVarChange( convar, ConVarChange_SteamGroup_KickOnFail );
 	g_bWhitelist_steamgroup_kickOnFail = GetConVarBool( convar );
