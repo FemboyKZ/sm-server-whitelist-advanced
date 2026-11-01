@@ -10,7 +10,7 @@ public Plugin:myinfo =
 	author = "RedSword ; forked & rewrote from Stevo.TVR 'Server whitelist' ; FKZ Fork",
 	description = "Restricts server to SteamIDs, IPs and SteamGroups' members/officers listed in the whitelist",
 	version = PLUGIN_VERSION,
-	url = "https://github.com/jvnipers/sm-server-whitelist-advanced"
+	url = "https://github.com/FemboyKZ/sm-server-whitelist-advanced"
 }
 
 #undef REQUIRE_EXTENSIONS
