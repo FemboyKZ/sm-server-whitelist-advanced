@@ -19,7 +19,8 @@ jobs:
       - name: Compile
         run: |
           mkdir -p build/addons/sourcemod/plugins build/addons/sourcemod/scripting
-          spcomp -i include serverwhitelistadvanced.sp -o build/addons/sourcemod/plugins/serverwhitelistadvanced.smx
+          make SPCOMP=spcomp
+          mv serverwhitelistadvanced.smx build/addons/sourcemod/plugins/
           cp serverwhitelistadvanced.sp build/addons/sourcemod/scripting/
           cp -r include build/addons/sourcemod/scripting/
 
